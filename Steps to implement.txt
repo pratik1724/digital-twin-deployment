@@ -1,0 +1,19 @@
+Step 1: Clone the Repository
+
+Step 2: Navigate to the Project Directory
+
+Step 3: Create a .env file and insert this values in it:-
+	REACT_APP_BACKEND_URL=http://localhost:8001
+	MONGO_URL=mongodb://localhost:27017/ "Your MongoDB link"
+	DB_NAME=digital_twin_db	
+	REACT_APP_AWS_ACCESS_KEY_ID=
+	REACT_APP_AWS_SECRET_ACCESS_KEY=
+	REACT_APP_AWS_SESSION_TOKEN=
+	GOOGLE_API_KEY=
+	
+
+Step 4: Running the project:-
+	 simply execute the "python start.py" command in the root directory of the project:
+
+Step 5: Accessing the Application
+
