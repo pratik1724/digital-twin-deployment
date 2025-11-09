@@ -29,12 +29,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-cli@v2
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          # credentials are provided by secrets below via configure-aws-credentials in the next step
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
