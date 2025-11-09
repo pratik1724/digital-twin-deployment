@@ -1,0 +1,32 @@
+version: 0.0
+os: linux
+files:
+- source: /build_revision/backend
+destination: /app/backend
+- source: /build_revision/frontend
+destination: /app/frontend
+- source: /build_revision/deploy-scripts
+destination: /app/deploy-scripts
+
+
+hooks:
+BeforeInstall:
+- location: /app/deploy-scripts/before_install.sh
+timeout: 300
+runas: root
+AfterInstall:
+- location: /app/deploy-scripts/after_install.sh
+timeout: 300
+runas: root
+ApplicationStop:
+- location: /app/deploy-scripts/stop_app.sh
+timeout: 300
+runas: root
+ApplicationStart:
+- location: /app/deploy-scripts/start_app.sh
+timeout: 300
+runas: root
+ValidateService:
+- location: /app/deploy-scripts/validate_service.sh
+timeout: 120
+runas: root
