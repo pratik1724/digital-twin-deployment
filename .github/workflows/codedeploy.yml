@@ -1,78 +1,145 @@
 name: CI → CodeDeploy (Test → Prod with Approval)
-environment: test
-steps:
-- name: Configure AWS credentials
-uses: aws-actions/configure-aws-credentials@v3
-with:
-aws-access-key-id: ${{ secrets.AWS_DEPLOY_KEY_ID }}
-aws-secret-access-key: ${{ secrets.AWS_DEPLOY_SECRET }}
-aws-region: ${{ env.AWS_REGION }}
 
+# When to run the workflow
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-- name: Create CodeDeploy deployment (TEST)
-id: create_deploy_test
-run: |
-S3_KEY="${{ needs.build.outputs.s3_key }}"
-echo "Using S3 Key: $S3_KEY"
-DEPLOY_ID=$(aws deploy create-deployment \
---application-name "${{ env.APP_NAME }}" \
---deployment-group-name "${{ env.TEST_DGROUP }}" \
---revision "revisionType=S3,s3Location={bucket=${{ env.S3_BUCKET }},key=${S3_KEY},bundleType=zip}" \
---description "Deploy to TEST from GH ${GITHUB_SHA}" \
---query "deploymentId" --output text)
-echo "deployment_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+# Default environment variables (overrideable in repo settings or workflow_dispatch)
+env:
+  S3_BUCKET: ${{ secrets.S3_BUCKET }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  APP_NAME: ${{ secrets.APP_NAME }}
+  TEST_DGROUP: ${{ secrets.TEST_DGROUP }}
+  PROD_DGROUP: ${{ secrets.PROD_DGROUP }}
 
+permissions:
+  contents: read
+  id-token: write
 
-- name: Wait for CodeDeploy finish (TEST)
-run: |
-DEPLOY_ID="${{ steps.create_deploy_test.outputs.deployment_id }}"
-echo "Waiting for deployment $DEPLOY_ID to complete..."
-aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"
-echo "Test deployment completed."
+jobs:
+  build:
+    name: Build & upload artifact to S3
+    runs-on: ubuntu-latest
+    outputs:
+      s3_key: ${{ steps.upload.outputs.s3_key }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-cli@v2
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          # credentials are provided by secrets below via configure-aws-credentials in the next step
 
-approve-production:
-name: Manual approval for PRODUCTION
-needs: deploy-test
-runs-on: ubuntu-latest
-environment:
-name: production
-url: https://your-production-url.example.com
-steps:
-- name: Await approval
-run: |
-echo "This job waits for a production environment approval in GitHub (go to Actions → required approvers)."
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_DEPLOY_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_DEPLOY_SECRET }}
+          aws-region: ${{ env.AWS_REGION }}
 
+      - name: Create deployment package (zip)
+        run: |
+          TIMESTAMP=$(date +%s)
+          ZIP_NAME="deploy-package-${TIMESTAMP}.zip"
+          # adjust files included as needed
+          zip -r "$ZIP_NAME" . --quiet
+          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-deploy-prod:
-name: Deploy → PROD (CodeDeploy)
-needs: approve-production
-runs-on: ubuntu-latest
-steps:
-- name: Configure AWS credentials
-uses: aws-actions/configure-aws-credentials@v3
-with:
-aws-access-key-id: ${{ secrets.AWS_DEPLOY_KEY_ID }}
-aws-secret-access-key: ${{ secrets.AWS_DEPLOY_SECRET }}
-aws-region: ${{ env.AWS_REGION }}
+      - name: Upload package to S3
+        id: upload
+        run: |
+          ZIP_NAME="${{ steps.create.outputs.zip_name || '' }}"
+          # fallback to earlier variable if not produced
+          if [ -z "$ZIP_NAME" ]; then
+            # find the zip we created
+            ZIP_NAME=$(ls deploy-package-*.zip 2>/dev/null | head -n1)
+          fi
+          if [ -z "$ZIP_NAME" ]; then
+            echo "No zip found" >&2
+            exit 1
+          fi
+          S3_KEY="releases/$ZIP_NAME"
+          aws s3 cp "$ZIP_NAME" "s3://${{ env.S3_BUCKET }}/$S3_KEY" --region "${{ env.AWS_REGION }}"
+          echo "s3_key=$S3_KEY" >> $GITHUB_OUTPUT
 
+  deploy-test:
+    name: Deploy → TEST (CodeDeploy)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_DEPLOY_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_DEPLOY_SECRET }}
+          aws-region: ${{ env.AWS_REGION }}
 
-- name: Create CodeDeploy deployment (PROD)
-id: create_deploy_prod
-run: |
-S3_KEY="${{ needs.build.outputs.s3_key }}"
-DEPLOY_ID=$(aws deploy create-deployment \
---application-name "${{ env.APP_NAME }}" \
---deployment-group-name "${{ env.PROD_DGROUP }}" \
---revision "revisionType=S3,s3Location={bucket=${{ env.S3_BUCKET }},key=${S3_KEY},bundleType=zip}" \
---description "Deploy to PROD from GH ${GITHUB_SHA}" \
---query "deploymentId" --output text)
-echo "deployment_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+      - name: Create CodeDeploy deployment (TEST)
+        id: create_deploy_test
+        run: |
+          S3_KEY="${{ needs.build.outputs.s3_key }}"
+          echo "Using S3 Key: $S3_KEY"
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name "${{ env.APP_NAME }}" \
+            --deployment-group-name "${{ env.TEST_DGROUP }}" \
+            --revision "revisionType=S3,s3Location={bucket=${{ env.S3_BUCKET }},key=${S3_KEY},bundleType=zip}" \
+            --description "Deploy to TEST from GH ${GITHUB_SHA}" \
+            --query "deploymentId" --output text)
+          echo "deployment_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
 
+      - name: Wait for CodeDeploy finish (TEST)
+        run: |
+          DEPLOY_ID="${{ steps.create_deploy_test.outputs.deployment_id }}"
+          echo "Waiting for deployment $DEPLOY_ID to complete..."
+          aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"
+          echo "Test deployment completed."
 
-- name: Wait for CodeDeploy finish (PROD)
-run: |
-DEPLOY_ID="${{ steps.create_deploy_prod.outputs.deployment_id }}"
-echo "Waiting for deployment $DEPLOY_ID to complete..."
-aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"
-echo "Production deployment completed."
+  approve-production:
+    name: Manual approval for PRODUCTION
+    needs: deploy-test
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://your-production-url.example.com
+    steps:
+      - name: Await approval
+        run: |
+          echo "This job waits for a production environment approval in GitHub (go to Actions → required approvers)."
+
+  deploy-prod:
+    name: Deploy → PROD (CodeDeploy)
+    needs: approve-production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_DEPLOY_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_DEPLOY_SECRET }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create CodeDeploy deployment (PROD)
+        id: create_deploy_prod
+        run: |
+          S3_KEY="${{ needs.build.outputs.s3_key }}"
+          echo "Using S3 Key: $S3_KEY"
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name "${{ env.APP_NAME }}" \
+            --deployment-group-name "${{ env.PROD_DGROUP }}" \
+            --revision "revisionType=S3,s3Location={bucket=${{ env.S3_BUCKET }},key=${S3_KEY},bundleType=zip}" \
+            --description "Deploy to PROD from GH ${GITHUB_SHA}" \
+            --query "deploymentId" --output text)
+          echo "deployment_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+
+      - name: Wait for CodeDeploy finish (PROD)
+        run: |
+          DEPLOY_ID="${{ steps.create_deploy_prod.outputs.deployment_id }}"
+          echo "Waiting for deployment $DEPLOY_ID to complete..."
+          aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"
+          echo "Production deployment completed."
