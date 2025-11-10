@@ -1,44 +1,22 @@
-name: Deploy to EC2
+name: Deploy to EC2 (Self-Hosted)
 
 on:
   push:
-    branches:
-      - main  # Triggers specifically when you push to the 'main' branch
+    branches: [ "main" ]
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted  # <--- RUNS DIRECTLY ON YOUR EC2
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
-            # 1. Navigate to the repo folder (adjust path if you cloned it elsewhere)
-            cd ~/digital-twin-deployment
-            
-            # 2. Pull the latest changes from GitHub
-            git pull origin main
-            
-            # 3. (Optional) Install new Python dependencies if a requirements.txt exists
-            # pip3 install -r requirements.txt
-            
-            # 4. Stop the currently running start.py process
-            # We use pkill to find and kill the process by name. '|| true' prevents failure if it's not running.
-            echo "Stopping old processes..."
-            pkill -f "python3 start.py" || true
-            
-            # 5. Start the app using start.py
-            # nohup allows it to run in the background after SSH disconnects.
-            # > app.log 2>&1 redirects all output to app.log for debugging.
-            echo "Starting new processes..."
-            nohup python3 start.py > app.log 2>&1 &
-            
-            echo "Deployment complete."
+      - name: Start Application
+        run: |
+          # Stop old process
+          pkill -f "python3 start.py" || true
+          
+          # Start new process in background
+          nohup python3 start.py > app.log 2>&1 &
+          echo "Deployment complete."
