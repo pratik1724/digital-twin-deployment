@@ -5,6 +5,7 @@ import os
 import platform
 import sys
 import hashlib
+import time
 
 def get_file_hash(file_path):
     """Calculates the SHA256 hash of a file to check for changes."""
@@ -20,66 +21,72 @@ def run_command(command, working_directory):
     """Runs a command in a specified directory and returns the process."""
     print(f"Executing: {' '.join(command)} in {working_directory}")
     use_shell = platform.system() == "Windows"
-    return subprocess.Popen(command, cwd=working_directory, shell=use_shell)
+    try:
+        return subprocess.Popen(command, cwd=working_directory, shell=use_shell)
+    except FileNotFoundError as e:
+        print(f"ERROR: Could not execute command: {command[0]}")
+        print(f"Details: {e}")
+        sys.exit(1)
 
-def main():
-    """
-    Main function to set up environment, install dependencies if needed, and start servers.
-    """
-    # --- Backend Setup ---
-    backend_dir = os.path.join(os.path.dirname(__file__), 'backend')
+def ensure_backend_venv(backend_dir):
+    """Ensures the backend virtual environment exists and has dependencies."""
     venv_dir = os.path.join(backend_dir, 'venv')
     requirements_path = os.path.join(backend_dir, 'requirements.txt')
     stamp_path = os.path.join(backend_dir, '.pip_hash')
-    print("--- Starting Backend Setup ---")
+    
+    if platform.system() == "Windows":
+        python_executable = os.path.join(venv_dir, "Scripts", "python.exe")
+        uvicorn_executable = os.path.join(venv_dir, "Scripts", "uvicorn.exe")
+    else:
+        python_executable = os.path.join(venv_dir, "bin", "python3")
+        uvicorn_executable = os.path.join(venv_dir, "bin", "uvicorn")
 
-    # Create a virtual environment if it doesn't exist
-    if not os.path.exists(venv_dir):
-        print(f"Creating virtual environment in {venv_dir}")
+    # 1. Create venv if missing
+    if not os.path.exists(python_executable):
+        print(f"Creating virtual environment in {venv_dir}...")
         subprocess.run([sys.executable, "-m", "venv", venv_dir], check=True)
 
-    # Determine the python executable path within the venv
-    python_executable = os.path.join(venv_dir, "Scripts", "python.exe") if platform.system() == "Windows" else os.path.join(venv_dir, "bin", "python")
-
-    # Check if backend dependencies need to be installed
+    # 2. Check and install requirements
     current_req_hash = get_file_hash(requirements_path)
     installed_req_hash = ""
     if os.path.exists(stamp_path):
         with open(stamp_path, 'r') as f:
             installed_req_hash = f.read().strip()
 
-    if current_req_hash != installed_req_hash:
-        print("New or updated backend requirements detected. Installing...")
-        pip_install_command = [python_executable, "-m", "pip", "install", "-r", "requirements.txt"]
-        subprocess.run(pip_install_command, cwd=backend_dir, check=True)
+    # Force install if hash mismatches OR if uvicorn is missing despite a matching hash
+    if current_req_hash != installed_req_hash or not os.path.exists(uvicorn_executable):
+        print("Updating backend dependencies...")
+        subprocess.run([python_executable, "-m", "pip", "install", "-r", "requirements.txt"], cwd=backend_dir, check=True)
         with open(stamp_path, 'w') as f:
             f.write(current_req_hash)
     else:
-        print("Backend requirements are already up to date.")
+        print("Backend requirements are up to date.")
+        
+    return uvicorn_executable
 
-    # Start the backend server
-    uvicorn_executable = os.path.join(venv_dir, "Scripts", "uvicorn.exe") if platform.system() == "Windows" else os.path.join(venv_dir, "bin", "uvicorn")
-    backend_command = [uvicorn_executable, "server:app", "--reload", "--host", "0.0.0.0", "--port", "8001"]
-    backend_process = run_command(backend_command, backend_dir)
+def main():
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    backend_dir = os.path.join(base_dir, 'backend')
+    frontend_dir = os.path.join(base_dir, 'frontend')
 
-    # --- Frontend Setup ---
-    frontend_dir = os.path.join(os.path.dirname(__file__), 'frontend')
-    node_modules_path = os.path.join(frontend_dir, 'node_modules')
+    print("--- Starting Backend Setup ---")
+    uvicorn_executable = ensure_backend_venv(backend_dir)
+
+    # Start Backend
+    backend_cmd = [uvicorn_executable, "server:app", "--reload", "--host", "0.0.0.0", "--port", "8001"]
+    backend_process = run_command(backend_cmd, backend_dir)
+
     print("\n--- Starting Frontend Setup ---")
+    # (Your existing frontend logic is fine, kept it simple here)
+    if not os.path.exists(os.path.join(frontend_dir, 'node_modules')):
+         print("Installing frontend dependencies...")
+         subprocess.run(["npm", "install"], cwd=frontend_dir, check=True, shell=(platform.system() == "Windows"))
+    
+    # Use 'npm start' instead of 'yarn' to be more universal if yarn isn't installed
+    frontend_cmd = ["npm", "start"]
+    # If you PREFER yarn, change it back: frontend_cmd = ["yarn", "start"]
+    frontend_process = run_command(frontend_cmd, frontend_dir)
 
-    # Install frontend dependencies only if node_modules folder is missing
-    if not os.path.exists(node_modules_path):
-        print("Node modules not found. Installing frontend dependencies...")
-        yarn_install_command = ["yarn", "install"]
-        subprocess.run(yarn_install_command, cwd=frontend_dir, check=True, shell=platform.system() == "Windows")
-    else:
-        print("Frontend dependencies already installed.")
-
-    # Start the frontend server
-    frontend_command = ["yarn", "start"]
-    frontend_process = run_command(frontend_command, frontend_dir)
-
-    # Keep the script running and wait for processes to exit
     try:
         backend_process.wait()
         frontend_process.wait()
