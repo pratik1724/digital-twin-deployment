@@ -6,17 +6,14 @@ on:
 
 jobs:
   deploy:
-    runs-on: self-hosted  # <--- RUNS DIRECTLY ON YOUR EC2
-
+    runs-on: self-hosted
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Start Application
         run: |
-          # Stop old process
+          # Simply run the smart start.py script
           pkill -f "python3 start.py" || true
-          
-          # Start new process in background
           nohup python3 start.py > app.log 2>&1 &
-          echo "Deployment complete."
+          echo "Deployment triggered."
