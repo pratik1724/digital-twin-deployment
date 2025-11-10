@@ -80,7 +80,7 @@ def main():
     # (Your existing frontend logic is fine, kept it simple here)
     if not os.path.exists(os.path.join(frontend_dir, 'node_modules')):
          print("Installing frontend dependencies...")
-         subprocess.run(["npm", "install"], cwd=frontend_dir, check=True, shell=(platform.system() == "Windows"))
+         subprocess.run(["npm", "install", "--legacy-peer-deps"], cwd=frontend_dir, check=True, shell=(platform.system() == "Windows"))
     
     # Use 'npm start' instead of 'yarn' to be more universal if yarn isn't installed
     frontend_cmd = ["npm", "start"]
