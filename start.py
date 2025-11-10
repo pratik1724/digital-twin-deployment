@@ -1,3 +1,5 @@
+"""Git deploy testing"""
+
 import subprocess
 import os
 import platform
