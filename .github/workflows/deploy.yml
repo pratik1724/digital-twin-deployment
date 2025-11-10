@@ -11,9 +11,36 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create Backend .env
+        run: |
+          cd backend
+          # Overwrite or create .env with new values
+          echo "MONGO_URL=${{ secrets.MONGO_URL }}" > .env
+          echo "DB_NAME=${{ secrets.DB_NAME }}" >> .env
+          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> .env
+          echo "PORT=8001" >> .env
+          # If backend also uses AWS SDK, include these:
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.REACT_APP_AWS_ACCESS_KEY_ID }}" >> .env
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.REACT_APP_AWS_SECRET_ACCESS_KEY }}" >> .env
+          # echo "AWS_SESSION_TOKEN=${{ secrets.REACT_APP_AWS_SESSION_TOKEN }}" >> .env
+
+      - name: Create Frontend .env
+        run: |
+          cd frontend
+          # Frontend needs REACT_APP_ prefix
+          echo "REACT_APP_BACKEND_URL=${{ secrets.REACT_APP_BACKEND_URL }}" > .env
+          echo "REACT_APP_AWS_ACCESS_KEY_ID=${{ secrets.REACT_APP_AWS_ACCESS_KEY_ID }}" >> .env
+          echo "REACT_APP_AWS_SECRET_ACCESS_KEY=${{ secrets.REACT_APP_AWS_SECRET_ACCESS_KEY }}" >> .env
+          echo "REACT_APP_AWS_SESSION_TOKEN=${{ secrets.REACT_APP_AWS_SESSION_TOKEN }}" >> .env
+
       - name: Start Application
         run: |
-          # Simply run the smart start.py script
+          # Navigate back to the project root explicitly
+          cd ~/actions-runner/_work/digital-twin-deployment/digital-twin-deployment
+          
+          # Stop old process if running
           pkill -f "python3 start.py" || true
+          
+          # Start the smart start.py script in background
           nohup python3 start.py > app.log 2>&1 &
-          echo "Deployment triggered."
+          echo "Deployment triggered successfully."
