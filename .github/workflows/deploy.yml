@@ -15,7 +15,6 @@ jobs:
           pwd
           whoami
 
-      # (This checkout is mainly for GitHub; real app dir is /home/ubuntu/digital-twin-deployment)
       - name: Checkout (not used directly)
         uses: actions/checkout@v4
 
@@ -28,10 +27,9 @@ jobs:
       - name: Create/Update backend .env
         run: |
           cd /home/ubuntu/digital-twin-deployment/backend
-          cat > .env <<EOF
+          cat > .env << 'EOF'
 MONGO_URL=${{ secrets.MONGO_URL }}
 DB_NAME=${{ secrets.DB_NAME }}
-# add other backend env vars here if needed
 EOF
 
       - name: Install backend dependencies
@@ -47,9 +45,8 @@ EOF
       - name: Create/Update frontend .env
         run: |
           cd /home/ubuntu/digital-twin-deployment/frontend
-          cat > .env <<EOF
+          cat > .env << 'EOF'
 REACT_APP_BACKEND_URL=${{ secrets.REACT_APP_BACKEND_URL }}
-# add any other REACT_APP_* variables you use
 EOF
 
       - name: Install frontend dependencies and build
@@ -71,4 +68,4 @@ EOF
 
       - name: Check backend health
         run: |
-          curl -f http://127.0.0.1:8001/health
+          curl -f http://127.0.0.1:8001/api/health
